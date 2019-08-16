@@ -5,29 +5,33 @@ const initTracer = jaeger.initTracer;
 const opentracing = require('opentracing');
 
 
-var config = {
-  serviceName: 'my-awesome-service',
-  sampler: {
-    type: "const",
-    param: 1
-  },
-  reporter: {
-    collectorEndpoint: 'http://localhost:14268/api/traces',
-  }
-};
-var options = {
-  tags: {
-    'my-awesome-service.version': '1.1.2',
-  },
-  contextKey: "ubiservices-tracing"
-};
-var tracer = initTracer(config, options);
+function getTracer(serviceName) {
+  var config = {
+    serviceName: serviceName,
+    sampler: {
+      type: "const",
+      param: 1
+    },
+    reporter: {
+      collectorEndpoint: 'http://localhost:14268/api/traces',
+    }
+  };
+  var options = {
+    tags: {
+      'my-awesome-service.version': '1.1.2',
+    },
+    contextKey: "ubiservices-tracing"
+  };
+  var tracer = initTracer(config, options);
+  return tracer;
+}
 
-const span = tracer.startSpan('jaga_run');
+const tracer = getTracer("js-service1");
+const span = tracer.startSpan('jaga_run').setOperationName("js");
 
 sleep.msleep(10);
 
-const function_span = tracer.startSpan("jaga_function", {childOf: span});
+const function_span = tracer.startSpan("jaga_function", {childOf: span}).setOperationName("js");
 
 function_span.setTag(opentracing.Tags.SPAN_KIND, "producer");
 function_span.setTag("message_bus.destination", "redis:message");
@@ -51,6 +55,8 @@ client.get("message", function(err, reply) {
     if(reply !== null){
       const message = JSON.parse(reply);
       console.log("Received message " + message.message);
+
+      var tracer = getTracer("js-service2");
       const transferred_span = tracer.extract(opentracing.FORMAT_TEXT_MAP, message.meta);
       console.log(message.meta);
       console.log(transferred_span);
@@ -58,12 +64,12 @@ client.get("message", function(err, reply) {
       const span_consumer = tracer.startSpan("jaga_consumer", {
         references: [
           opentracing.followsFrom(transferred_span)
-        ]});
+        ]}).setOperationName("js");
       span_consumer.setTag(opentracing.Tags.SPAN_KIND, "consumer");
       span_consumer.setTag("message_bus.destination", "redis:message");
 
       setTimeout(function(){
-        const span_consumer_function = tracer.startSpan("jaga_consumer_function", {childOf: span_consumer});
+        const span_consumer_function = tracer.startSpan("jaga_consumer_function", {childOf: span_consumer}).setOperationName("js");
         span_consumer_function.setTag(opentracing.Tags.COMPONENT, "some component");
         sleep.msleep(10);
         span_consumer_function.finish();
@@ -80,4 +86,3 @@ client.get("message", function(err, reply) {
       }, 100);
     }
 });
-
